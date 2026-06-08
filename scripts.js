@@ -12,6 +12,7 @@ const roomNameDisplay = document.getElementById('room-name');
 let currentUserId = sessionStorage.getItem("currentUser");
 let currentUsername = '';
 let lastMessageTime = Date.now();
+const API_URL = APP_CONFIG.API_URL || 'http://localhost:8000';
 
 roomButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -22,9 +23,9 @@ roomButtons.forEach(btn => {
 async function loadUsers()
 {
     const currentRoom = sessionStorage.getItem("currentRoom") || "general";
-    const response = await fetch(`http://127.0.0.1:8000/rooms/${currentRoom}/users`)
+    const response = await fetch(`${API_URL}/rooms/${currentRoom}/users`)
     const data = await response.json()
-    renderUsers(data.active_users)
+    renderUsers(data.active_users) 
 }
 
 function renderUsers(data)
@@ -41,11 +42,13 @@ function renderUsers(data)
 
 async function loadMessages()
 { 
-  const currentRoom = sessionStorage.getItem("currentRoom") || "general";
-    const response = await fetch(`http://127.0.0.1:8000/rooms/${currentRoom}/messages`)
+    const currentRoom = sessionStorage.getItem("currentRoom") || "general";
+    const response = await fetch(`${API_URL}/rooms/${currentRoom}/messages`)
     const data = await response.json()
     chatWindow.innerHTML = '';
     renderMessages(data)
+    lastMessageTime = Date.now();
+
 }
 function renderMessages(msgs)
 {
@@ -55,7 +58,7 @@ function renderMessages(msgs)
 
             const messageDiv=document.createElement('div');
             let style_msg="other-message"
-            if (m.user_id==sessionStorage.getItem("currentUser"))
+            if (m.user_id==currentUserId)
                 {style_msg="my-message"}
             messageDiv.classList.add('message',style_msg)
             messageDiv.innerHTML=`<div class="sender">${m.username}</div><div>${m.text}</div><div>${m.timestamp} </div>`
@@ -95,11 +98,12 @@ async function sendMessage(e)
   }
 
   try {
-    const response = await fetch("http://localhost:8000/messages", options)
+    const response = await fetch(`${API_URL}/messages`, options)
     
     if (response.ok) {
       const newMsg = await response.json();
       renderMessages([newMsg]);
+      lastMessageTime = Date.now();
       messageInput.value = "";
     } else {
       const error = await response.json();
@@ -115,7 +119,7 @@ async function sendMessage(e)
 
 async function joinRoom(roomName, userId) {
 
-        const response = await fetch(`http://localhost:8000/rooms/${roomName}/join`, {
+        const response = await fetch(`${API_URL}/rooms/${roomName}/join`, {
             method: "POST",
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_id: userId })
@@ -133,7 +137,7 @@ async function joinRoom(roomName, userId) {
 // Покинуть комнату
 async function leaveRoom(roomName, userId) {
   
-        const response = await fetch(`http://localhost:8000/rooms/${roomName}/leave`, {
+        const response = await fetch(`${API_URL}/rooms/${roomName}/leave`, {
             method: "POST",
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_id: userId })
@@ -188,13 +192,12 @@ async function registerUser(e)
     headers: { 'Content-Type': 'application/json' },
     body:  JSON.stringify(msg)
   }
-  const response = await fetch("http://localhost:8000/register",options)
+  const response = await fetch(`${API_URL}/register`, options)
   if(response.ok)
   {     
         const userData = await response.json();
         currentUserId = userData.id;
         currentUsername = userData.name;
-        lastMessageTime = Date.now();
         await joinRoom('general', currentUserId);
         sessionStorage.setItem("currentUser",currentUserId)
         await loadUsers()
@@ -233,14 +236,14 @@ async function loginUser(e)
     headers: { 'Content-Type': 'application/json' },
     body:  JSON.stringify(msg)
   }
-  const response = await fetch("http://localhost:8000/login",options)
+  const response = await fetch(`${API_URL}/login`, options)
   if(response.ok)
   {
             const responseData = await response.json();
             const userData = responseData.user;
             currentUserId = userData.id;
             currentUsername = userData.name;
-            lastMessageTime = Date.now();
+      
             sessionStorage.setItem("currentUser",currentUserId)
             // Присоединяемся к комнате general
             await joinRoom('general', currentUserId);
@@ -265,14 +268,15 @@ async function loadNewMessages()
 {
     try {
         const currentRoom = sessionStorage.getItem("currentRoom") || "general";
-        const response = await fetch(`http://localhost:8000/rooms/${currentRoom}/messages/poll?since=${lastMessageTime}`);
+        const response = await fetch(`${API_URL}/rooms/${currentRoom}/messages/poll?since=${lastMessageTime}`);
         if (response.ok) {
             const messages = await response.json();
             if (messages.length > 0) {
                 renderMessages(messages);
-                lastMessageTime = Date.now();
             }
+           
         }
+        lastMessageTime = Date.now();
     } catch (error) {
         console.error('Ошибка при загрузке новых сообщений:', error);
     }
@@ -311,11 +315,16 @@ document.addEventListener('DOMContentLoaded', () => {
 loadUsers()
 loadMessages()
 
+// Сохраняем ID интервала, чтобы избежать множественных полингов
+let pollInterval = null;
 
 messageForm.addEventListener("submit",sendMessage)
 btnRegister.addEventListener("click",registerUser)
 btnLogin.addEventListener("click",loginUser)
 btnLogout.addEventListener("click",logoutUser)
 
-setInterval(loadNewMessages, 10000)
+// Запускаем полинг только один раз
+if (!pollInterval) {
+    pollInterval = setInterval(loadNewMessages, 10000);
+}
 
